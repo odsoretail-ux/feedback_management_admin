@@ -4,7 +4,8 @@ import { config } from '../config';
 const axiosInstance = axios.create({
     baseURL: config.apiBaseUrl,
     headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true'
     }
 });
 
