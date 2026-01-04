@@ -395,6 +395,7 @@ export const UserManagement = () => {
                                 <MenuItem value="DO">DO</MenuItem>
                                 <MenuItem value="FO">FO</MenuItem>
                                 <MenuItem value="superuser">Super User</MenuItem>
+                                <MenuItem value="Vendor">Vendor</MenuItem>
                             </Select>
                         </FormControl>
 
