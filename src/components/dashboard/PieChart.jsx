@@ -1,7 +1,7 @@
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { Card, CardContent, Typography, Box, useTheme } from '@mui/material';
 
-export const PieChart = ({ title, data, dataKey = "value", nameKey = "name", colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'], minHeight = 350, sx }) => {
+export const PieChart = ({ title, data = [], dataKey = "value", nameKey = "name", colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'], minHeight = 350, sx }) => {
     const theme = useTheme();
 
     // Define color mapping for rating labels
@@ -24,14 +24,15 @@ export const PieChart = ({ title, data, dataKey = "value", nameKey = "name", col
     // Check if this looks like a rating chart (or data is empty, assume yes)
     // If we have data that doesn't match these labels at all, we might want to skip modification
     // to keep this component reusable.
-    const isRatingChart = data.length === 0 || data.some(d => ratingLabels.includes(d[nameKey]));
+    const safeData = data || [];
+    const isRatingChart = safeData.length === 0 || safeData.some(d => ratingLabels.includes(d[nameKey]));
 
     const processedData = isRatingChart
         ? ratingLabels.map(label => {
-            const existing = data.find(d => d[nameKey] === label);
+            const existing = safeData.find(d => d[nameKey] === label);
             return existing || { [nameKey]: label, [dataKey]: 0 };
         })
-        : data;
+        : safeData;
 
     return (
         <Card sx={{ height: '100%', minHeight: minHeight, ...sx }}>
@@ -39,42 +40,44 @@ export const PieChart = ({ title, data, dataKey = "value", nameKey = "name", col
                 <Typography variant="h6" gutterBottom fontWeight="600" color="text.secondary">
                     {title}
                 </Typography>
-                <Box sx={{ flexGrow: 1, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                        <RePieChart>
-                            <Pie
-                                data={processedData}
-                                cx="50%"
-                                cy="50%"
+                <Box sx={{ flexGrow: 1, width: '100%', minHeight: 0, height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ width: '100%', height: '100%', minHeight: 250 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                            <RePieChart>
+                                <Pie
+                                    data={processedData}
+                                    cx="50%"
+                                    cy="50%"
 
-                                innerRadius="70%"
-                                outerRadius="90%"
-                                paddingAngle={5}
-                                dataKey={dataKey}
-                                nameKey={nameKey}
-                                stroke="none"
-                            >
-                                {processedData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={getColor(entry, index)} />
-                                ))}
-                            </Pie>
-                            <Tooltip
-                                contentStyle={{
-                                    backgroundColor: theme.palette.background.paper,
-                                    borderRadius: 8,
-                                    border: 'none',
-                                    boxShadow: theme.shadows[3]
-                                }}
-                            />
-                            <Legend
-                                layout="vertical"
-                                verticalAlign="middle"
-                                align="left"
-                                iconType="circle"
-                                wrapperStyle={{ paddingLeft: '20px' }}
-                            />
-                        </RePieChart>
-                    </ResponsiveContainer>
+                                    innerRadius="70%"
+                                    outerRadius="90%"
+                                    paddingAngle={5}
+                                    dataKey={dataKey}
+                                    nameKey={nameKey}
+                                    stroke="none"
+                                >
+                                    {processedData.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={getColor(entry, index)} />
+                                    ))}
+                                </Pie>
+                                <Tooltip
+                                    contentStyle={{
+                                        backgroundColor: theme.palette.background.paper,
+                                        borderRadius: 8,
+                                        border: 'none',
+                                        boxShadow: theme.shadows[3]
+                                    }}
+                                />
+                                <Legend
+                                    layout="vertical"
+                                    verticalAlign="middle"
+                                    align="left"
+                                    iconType="circle"
+                                    wrapperStyle={{ paddingLeft: '20px' }}
+                                />
+                            </RePieChart>
+                        </ResponsiveContainer>
+                    </div>
                 </Box>
             </CardContent>
         </Card>
