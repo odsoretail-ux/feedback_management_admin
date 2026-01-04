@@ -6,4 +6,5 @@ export const userApi = {
     updateUser: (id, userData) => axiosClient.put(`/users/${id}`, userData),
     deleteUser: (id) => axiosClient.delete(`/users/${id}`),
     resetPassword: (id, newPassword) => axiosClient.post(`/users/${id}/reset-password`, { newPassword }),
+    getHierarchy: () => axiosClient.get('/users/hierarchy')
 };

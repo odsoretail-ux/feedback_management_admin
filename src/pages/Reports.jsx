@@ -10,6 +10,11 @@ import {
 import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 import { useFeedbacks } from '../hooks/useFeedbacks';
 import { useAuth } from '../hooks/useAuth';
@@ -34,14 +39,8 @@ export const Reports = () => {
     });
 
     const [selectedFeedback, setSelectedFeedback] = useState(null);
-    const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
-    const [reviewStatus, setReviewStatus] = useState('');
-
-    // Workflow State
-    const [workflowDialogOpen, setWorkflowDialogOpen] = useState(false);
-    const [fos, setFos] = useState([]);
-    const [targetFo, setTargetFo] = useState('');
-    const [workflowAction, setWorkflowAction] = useState(''); // 'escalate', 'assign', 'resolve', 'close'
+    const [actionDialogOpen, setActionDialogOpen] = useState(false);
+    const [actionType, setActionType] = useState(null); // 'verify', 'resolve', 'close'
 
     // Load data on change
     useEffect(() => {
@@ -69,16 +68,36 @@ export const Reports = () => {
         setPage(0);
     };
 
-    const handleOpenReview = (feedback) => {
+    const handleOpenAction = (feedback, type) => {
         setSelectedFeedback(feedback);
-        setReviewStatus(feedback.status);
-        setReviewDialogOpen(true);
+        setActionType(type);
+        setActionDialogOpen(true);
     };
 
-    const handleSubmitReview = async () => {
-        if (selectedFeedback && reviewStatus) {
-            await reviewFeedback(selectedFeedback.id, reviewStatus);
-            setReviewDialogOpen(false);
+    const handleConfirmAction = async () => {
+        if (!selectedFeedback || !actionType) return;
+
+        let newStatus = '';
+        if (actionType === 'verify_ro') newStatus = 'RO Verified';
+        else if (actionType === 'verify_do') newStatus = 'DO Verified';
+        else if (actionType === 'resolve') newStatus = 'Resolved';
+        else if (actionType === 'close') newStatus = 'Closed';
+
+        try {
+            await feedbackApi.updateWorkflowStatus(selectedFeedback.id, newStatus);
+            // Refresh logic handled by fetchFeedbacks in useEffect or optimistic update if added
+            const params = {
+                page: page + 1,
+                limit: rowsPerPage,
+                ...filters,
+                startDate: filters.startDate ? filters.startDate.format('YYYY-MM-DD') : undefined,
+                endDate: filters.endDate ? filters.endDate.format('YYYY-MM-DD') : undefined
+            };
+            fetchFeedbacks(params);
+            setActionDialogOpen(false);
+        } catch (err) {
+            console.error("Action failed", err);
+            // Optional: Set specific error state to show in dialog
         }
     };
 
@@ -92,12 +111,13 @@ export const Reports = () => {
     };
 
     const getStatusColor = (status) => {
-        switch (status?.toLowerCase()) {
-            case 'verified': return 'success';
-            case 'rejected': return 'error';
-            case 'reviewed': return 'info';
-            default: return 'warning';
-        }
+        if (!status) return 'default';
+        const s = status.toLowerCase();
+        if (s.includes('verified') || s === 'resolved') return 'success';
+        if (s === 'rejected' || s === 'closed') return 'error';
+        if (s.includes('assigned') || s === 'reviewed') return 'info';
+        if (s === 'pending') return 'warning';
+        return 'default';
     };
 
     const [anchorEl, setAnchorEl] = useState(null);
@@ -119,56 +139,28 @@ export const Reports = () => {
             setSelectedFeedback(menuFeedback);
             setViewDialogOpen(true);
         } else if (action === 'action') {
-            handleOpenReview(menuFeedback);
-        }
-        handleCloseMenu();
-    };
-
-    const handleWorkflowClick = async (newStatus) => {
-        handleCloseMenu();
-        if (newStatus === 'Assigned') {
-            // Fetch FOs for the feedback's branch
-            // Note: menuFeedback.roCode is the branch code? It should be in data.
-            // Based on DTO: roCode is available.
-            try {
-                const res = await feedbackApi.getFieldOfficers(menuFeedback.roCode);
-                if (res.success) {
-                    setFos(res.data);
-                    setTargetFo('');
-                    setWorkflowAction(newStatus);
-                    setWorkflowDialogOpen(true);
-                }
-            } catch (err) {
-                console.error("Failed to fetch FOs", err);
-                alert("Failed to fetch Field Officers");
+            const actionType = getActionForUser(menuFeedback);
+            if (actionType) {
+                handleOpenAction(menuFeedback, actionType);
             }
-        } else {
-            // Direct update for other statuses
-            await submitWorkflowUpdate(menuFeedback.id, newStatus);
         }
+        handleCloseMenu();
     };
 
-    const submitWorkflowChange = async () => {
-        if (!targetFo) return;
-        await submitWorkflowUpdate(menuFeedback.id, workflowAction, targetFo);
-        setWorkflowDialogOpen(false);
+    const getActionForUser = (feedback) => {
+        if (!feedback) return null;
+        const status = feedback.workflowStatus || feedback.status;
+        const role = user?.role;
+
+        if (role === 'RO' && status === 'Pending') return 'verify_ro';
+        if (role === 'DO' && (status === 'RO Verified' || status === 'Pending')) return 'verify_do';
+        if (role === 'FO' && status === 'Assigned') return 'resolve';
+        if (role === 'DO' && status === 'Resolved') return 'close';
+        return null;
     };
 
-    const submitWorkflowUpdate = async (id, status, assignedTo = null) => {
-        try {
-            await feedbackApi.updateWorkflowStatus(id, status, assignedTo);
-            // Refresh data
-            const params = {
-                page: page + 1,
-                limit: rowsPerPage,
-                ...filters
-            };
-            fetchFeedbacks(params);
-        } catch (err) {
-            console.error("Workflow update failed", err);
-            alert("Failed to update status");
-        }
-    };
+
+
 
     // ... existing handlers ...
 
@@ -262,7 +254,6 @@ export const Reports = () => {
                                 <TableCell>Air Rating</TableCell>
                                 <TableCell>Water Rating</TableCell>
                                 <TableCell>Washroom Rating</TableCell>
-                                <TableCell>Workflow</TableCell>
                                 <TableCell>Status</TableCell>
                                 <TableCell>More</TableCell>
                             </TableRow>
@@ -280,29 +271,24 @@ export const Reports = () => {
                                 data.map((row, index) => (
                                     <TableRow key={row.id} hover>
                                         <TableCell>{(page * rowsPerPage) + index + 1}</TableCell>
-                                        <TableCell>{dayjs(row.createdAt).format('DD/MM/YYYY')}</TableCell>
+                                        <TableCell>{dayjs.utc(row.createdAt).tz(dayjs.tz.guess()).format('DD/MM/YYYY')}</TableCell>
                                         <TableCell>{row.phoneNumber}</TableCell>
                                         <TableCell>{row.freeAirFacilityRating || '-'}</TableCell>
                                         <TableCell>{row.drinkingWaterRating || '-'}</TableCell>
                                         <TableCell>{row.washroomCleanlinessRating || '-'}</TableCell>
                                         <TableCell>
                                             <Chip
-                                                label={row.workflowStatus || 'Pending'}
-                                                size="small"
-                                                color={row.workflowStatus === 'Closed' ? 'success' : row.workflowStatus === 'Resolved' ? 'info' : 'default'}
-                                            />
-                                        </TableCell>
-                                        <TableCell>
-                                            <Chip
-                                                label={row.status}
-                                                color={getStatusColor(row.status)}
+                                                label={row.workflowStatus || row.status}
+                                                color={getStatusColor(row.workflowStatus || row.status)}
                                                 size="small"
                                             />
                                         </TableCell>
                                         <TableCell>
-                                            <IconButton size="small" onClick={(e) => handleOpenMenu(e, row)}>
-                                                <MoreVert />
-                                            </IconButton>
+                                            <Box display="flex" justifyContent="center">
+                                                <IconButton size="small" onClick={(e) => handleOpenMenu(e, row)}>
+                                                    <MoreVert />
+                                                </IconButton>
+                                            </Box>
                                         </TableCell>
                                     </TableRow>
                                 ))
@@ -327,55 +313,25 @@ export const Reports = () => {
                 open={Boolean(anchorEl)}
                 onClose={handleCloseMenu}
             >
-                <MuiMenuItem onClick={() => handleMenuAction('view')}>View more</MuiMenuItem>
+                <MuiMenuItem onClick={() => handleMenuAction('view')}>
+                    <Box display="flex" alignItems="center" gap={1}>
+                        <Visibility fontSize="small" />
+                        <Typography>View Details</Typography>
+                    </Box>
+                </MuiMenuItem>
 
-                {/* Workflow Actions */}
-                {user?.role === 'RO' && (!menuFeedback?.workflowStatus || menuFeedback.workflowStatus === 'Pending') && (
-                    <MuiMenuItem onClick={() => handleWorkflowClick('Escalated')}>Escalate to DO</MuiMenuItem>
-                )}
-
-                {user?.role === 'DO' && menuFeedback?.workflowStatus === 'Escalated' && (
-                    <MuiMenuItem onClick={() => handleWorkflowClick('Assigned')}>Assign to FO</MuiMenuItem>
-                )}
-
-                {user?.role === 'FO' && menuFeedback?.workflowStatus === 'Assigned' && (
-                    <MuiMenuItem onClick={() => handleWorkflowClick('Resolved')}>Mark Resolved</MuiMenuItem>
-                )}
-
-                {user?.role === 'DO' && menuFeedback?.workflowStatus === 'Resolved' && (
-                    <MuiMenuItem onClick={() => handleWorkflowClick('Closed')}>Close Ticket</MuiMenuItem>
-                )}
-
-                {/* Review Action - For Superuser and DO */}
-                {(user?.role === 'superuser' || user?.role === 'DO') && (
-                    <MuiMenuItem onClick={() => handleMenuAction('action')}>Review Status</MuiMenuItem>
+                {/* Conditional "Take Action" Item */}
+                {getActionForUser(menuFeedback) && (
+                    <MuiMenuItem onClick={() => handleMenuAction('action')}>
+                        <Box display="flex" alignItems="center" gap={1}>
+                            <CheckCircle fontSize="small" color="primary" />
+                            <Typography color="primary" fontWeight="medium">Take Action</Typography>
+                        </Box>
+                    </MuiMenuItem>
                 )}
             </Menu>
 
-            {/* Workflow Assignment Dialog */}
-            <Dialog open={workflowDialogOpen} onClose={() => setWorkflowDialogOpen(false)}>
-                <DialogTitle>Assign Field Officer</DialogTitle>
-                <DialogContent sx={{ minWidth: 300, pt: 2 }}>
-                    <Typography variant="body2" mb={2}>
-                        Select a Field Officer to assign this ticket to.
-                    </Typography>
-                    <TextField
-                        select
-                        fullWidth
-                        label="Select FO"
-                        value={targetFo}
-                        onChange={(e) => setTargetFo(e.target.value)}
-                    >
-                        {fos.map((fo) => (
-                            <MenuItem key={fo.id} value={fo.id}>{fo.fullName || fo.username}</MenuItem>
-                        ))}
-                    </TextField>
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setWorkflowDialogOpen(false)}>Cancel</Button>
-                    <Button onClick={submitWorkflowChange} variant="contained" color="primary">Assign</Button>
-                </DialogActions>
-            </Dialog>
+
 
             {/* View Dialog */}
             <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="sm" fullWidth>
@@ -384,14 +340,14 @@ export const Reports = () => {
                     {selectedFeedback && (
                         <Box display="flex" flexDirection="column" gap={2}>
                             <Box><Typography fontWeight="bold">ID:</Typography> {selectedFeedback.id}</Box>
-                            <Box><Typography fontWeight="bold">Date:</Typography> {dayjs(selectedFeedback.createdAt).format('DD/MM/YYYY HH:mm')}</Box>
+                            <Box><Typography fontWeight="bold">Date:</Typography> {dayjs.utc(selectedFeedback.createdAt).tz(dayjs.tz.guess()).format('DD/MM/YYYY HH:mm z')}</Box>
                             <Box><Typography fontWeight="bold">Phone:</Typography> {selectedFeedback.phoneNumber}</Box>
                             <Box><Typography fontWeight="bold">RO Code:</Typography> {selectedFeedback.roCode || '-'}</Box>
                             <Box><Typography fontWeight="bold">Air Rating:</Typography> {selectedFeedback.freeAirFacilityRating || '-'}</Box>
                             <Box><Typography fontWeight="bold">Water Rating:</Typography> {selectedFeedback.drinkingWaterRating || '-'}</Box>
                             <Box><Typography fontWeight="bold">Washroom Rating:</Typography> {selectedFeedback.washroomCleanlinessRating || '-'}</Box>
                             <Box><Typography fontWeight="bold">Comments:</Typography> {selectedFeedback.experienceComments || '-'}</Box>
-                            <Box><Typography fontWeight="bold">Status:</Typography> {selectedFeedback.status}</Box>
+                            <Box><Typography fontWeight="bold">Status:</Typography> {selectedFeedback.workflowStatus || selectedFeedback.status}</Box>
 
                             <Box>
                                 <Typography fontWeight="bold" mb={1}>Attachments:</Typography>
@@ -457,29 +413,32 @@ export const Reports = () => {
                 </DialogActions>
             </Dialog>
 
-            {/* Review Dialog (Take Action) */}
-            <Dialog open={reviewDialogOpen} onClose={() => setReviewDialogOpen(false)}>
-                {/* ... existing review dialog content ... */}
-                <DialogTitle>Take Action / Review</DialogTitle>
-                <DialogContent sx={{ minWidth: 300, pt: 2 }}>
-                    <Box mb={2}>
-                        <Typography variant="subtitle2">Current Status: {selectedFeedback?.status}</Typography>
+            {/* Action Confirmation Dialog */}
+            <Dialog open={actionDialogOpen} onClose={() => setActionDialogOpen(false)}>
+                <DialogTitle>Confirm Action</DialogTitle>
+                <DialogContent>
+                    <Typography gutterBottom>
+                        Please confirm the following action for Feedback #{selectedFeedback?.id}:
+                    </Typography>
+
+                    <Box sx={{ mt: 2, p: 2, bgcolor: '#f5f5f5', borderRadius: 1, textAlign: 'center' }}>
+                        <Typography variant="h6" color="primary">
+                            {actionType === 'verify_ro' ? 'Verify Feedback (RO)' :
+                                actionType === 'verify_do' ? 'Verify & Auto-Assign (DO)' :
+                                    actionType === 'resolve' ? 'Mark as Resolved' :
+                                        actionType === 'close' ? 'Close Ticket' : ''}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                            {actionType === 'verify_ro' ? 'Confirm that this feedback is valid.' :
+                                actionType === 'verify_do' ? 'Validate and assign to the mapped Field Officer.' :
+                                    actionType === 'resolve' ? 'Indicate that the issue has been addressed.' :
+                                        actionType === 'close' ? 'Finalize and close this feedback loop.' : ''}
+                        </Typography>
                     </Box>
-                    <TextField
-                        select
-                        fullWidth
-                        label="New Status"
-                        value={reviewStatus}
-                        onChange={(e) => setReviewStatus(e.target.value)}
-                    >
-                        {filterOptions.statuses.map((opt) => (
-                            <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
-                        ))}
-                    </TextField>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setReviewDialogOpen(false)}>Cancel</Button>
-                    <Button onClick={handleSubmitReview} variant="contained" color="primary">Update</Button>
+                    <Button onClick={() => setActionDialogOpen(false)}>Cancel</Button>
+                    <Button onClick={handleConfirmAction} variant="contained" color="primary">Confirm</Button>
                 </DialogActions>
             </Dialog>
         </Box>

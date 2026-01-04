@@ -107,7 +107,7 @@ export const AppLayout = () => {
                 </IconButton>
             </Toolbar>
             <Divider />
-            <List component="nav">
+            <List component="nav" sx={{ px: 2, py: 1.5 }}>
                 {menuItems.map((item) => (
                     <ListItem
                         button
@@ -118,14 +118,38 @@ export const AppLayout = () => {
                         }}
                         selected={location.pathname === item.path}
                         sx={{
-                            bgcolor: location.pathname === item.path ? 'action.selected' : 'transparent',
-                            '&:hover': { bgcolor: 'action.hover' }
+                            mb: 0.5,
+                            borderRadius: '12px',
+                            transition: 'all 0.2s ease-in-out',
+                            bgcolor: location.pathname === item.path ? 'primary.main' : 'transparent',
+                            color: location.pathname === item.path ? 'primary.contrastText' : 'text.secondary',
+                            '&:hover': {
+                                bgcolor: location.pathname === item.path ? 'primary.dark' : 'action.hover',
+                                transform: 'translateX(4px)'
+                            },
+                            '&.Mui-selected': {
+                                bgcolor: 'primary.main',
+                                color: 'primary.contrastText',
+                                boxShadow: '0 4px 12px rgba(79, 70, 229, 0.3)',
+                                '&:hover': {
+                                    bgcolor: 'primary.dark',
+                                }
+                            }
                         }}
                     >
-                        <ListItemIcon sx={{ color: location.pathname === item.path ? 'primary.main' : 'inherit' }}>
+                        <ListItemIcon sx={{
+                            color: location.pathname === item.path ? 'inherit' : 'inherit',
+                            minWidth: 40
+                        }}>
                             {item.icon}
                         </ListItemIcon>
-                        <ListItemText primary={item.text} />
+                        <ListItemText
+                            primary={item.text}
+                            primaryTypographyProps={{
+                                fontWeight: location.pathname === item.path ? 600 : 500,
+                                fontSize: '0.9rem'
+                            }}
+                        />
                     </ListItem>
                 ))}
             </List>
@@ -139,6 +163,10 @@ export const AppLayout = () => {
                 zIndex: (theme) => theme.zIndex.drawer + 1,
                 width: open && !isMobile ? `calc(100% - ${drawerWidth}px)` : '100%',
                 ml: open && !isMobile ? `${drawerWidth}px` : 0,
+                background: 'rgba(255, 255, 255, 0.8)',
+                backdropFilter: 'blur(12px)',
+                borderBottom: '1px solid rgba(226, 232, 240, 0.8)',
+                boxShadow: 'none',
                 transition: theme.transitions.create(['width', 'margin'], {
                     easing: theme.transitions.easing.sharp,
                     duration: theme.transitions.duration.leavingScreen,
