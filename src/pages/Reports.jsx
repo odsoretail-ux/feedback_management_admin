@@ -74,14 +74,32 @@ export const Reports = () => {
         setActionDialogOpen(true);
     };
 
+    const handleRejectAction = async () => {
+        if (!selectedFeedback) return;
+        try {
+            await feedbackApi.updateWorkflowStatus(selectedFeedback.id, 'Rejected');
+            const params = {
+                page: page + 1,
+                limit: rowsPerPage,
+                ...filters,
+                startDate: filters.startDate ? filters.startDate.format('YYYY-MM-DD') : undefined,
+                endDate: filters.endDate ? filters.endDate.format('YYYY-MM-DD') : undefined
+            };
+            fetchFeedbacks(params);
+            setActionDialogOpen(false);
+        } catch (err) {
+            console.error("Reject failed", err);
+        }
+    };
+
     const handleConfirmAction = async () => {
         if (!selectedFeedback || !actionType) return;
 
         let newStatus = '';
-        if (actionType === 'verify_ro') newStatus = 'RO Verified';
-        else if (actionType === 'verify_do') newStatus = 'DO Verified';
-        else if (actionType === 'resolve') newStatus = 'Resolved';
-        else if (actionType === 'close') newStatus = 'Closed';
+        if (actionType === 'vendor_verify') newStatus = 'Vendor Verified';
+        else if (actionType === 'do_assign') newStatus = 'Assigned';
+        else if (actionType === 'fo_action') newStatus = 'Action Taken';
+        else if (actionType === 'do_resolve') newStatus = 'Resolved';
 
         try {
             await feedbackApi.updateWorkflowStatus(selectedFeedback.id, newStatus);
@@ -114,6 +132,7 @@ export const Reports = () => {
         if (!status) return 'default';
         const s = status.toLowerCase();
         if (s.includes('verified') || s === 'resolved') return 'success';
+        if (s.includes('action')) return 'secondary';
         if (s === 'rejected' || s === 'closed') return 'error';
         if (s.includes('assigned') || s === 'reviewed') return 'info';
         if (s === 'pending') return 'warning';
@@ -152,10 +171,26 @@ export const Reports = () => {
         const status = feedback.workflowStatus || feedback.status;
         const role = user?.role;
 
-        if (role === 'RO' && status === 'Pending') return 'verify_ro';
-        if (role === 'DO' && (status === 'RO Verified' || status === 'Pending')) return 'verify_do';
-        if (role === 'FO' && status === 'Assigned') return 'resolve';
-        if (role === 'DO' && status === 'Resolved') return 'close';
+        // 1. Vendor Review: Pending -> Vendor Verified
+        if ((role === 'Vendor' || role === 'superuser') && status === 'Pending') {
+            return 'vendor_verify';
+        }
+
+        // 2. DO Assignment: Vendor Verified -> Assigned
+        if (role === 'DO' && status === 'Vendor Verified') {
+            return 'do_assign';
+        }
+
+        // 3. FO Action: Assigned -> Action Taken
+        if (role === 'FO' && status === 'Assigned') {
+            return 'fo_action';
+        }
+
+        // 4. DO Final Review: Action Taken -> Resolved
+        if (role === 'DO' && status === 'Action Taken') {
+            return 'do_resolve';
+        }
+
         return null;
     };
 
@@ -179,67 +214,66 @@ export const Reports = () => {
             </Box>
 
             <Paper sx={{ p: 2, mb: 3 }}>
-                {/* ... existing filters grid ... */}
-                <Grid container spacing={2} alignItems="center">
-                    <Grid item xs={12} sm={6} md={3}>
-                        <TextField
-                            fullWidth
-                            label="Search"
-                            size="small"
-                            value={filters.search}
-                            onChange={(e) => handleFilterChange('search', e.target.value)}
-                            placeholder="Phone or Comment"
-                        />
+                <LocalizationProvider dateAdapter={AdapterDayjs}>
+                    <Grid container spacing={2} columns={{ xs: 12, md: 10 }} alignItems="center">
+                        <Grid item xs={12} md={2}>
+                            <TextField
+                                fullWidth
+                                label="Search"
+                                size="small"
+                                value={filters.search}
+                                onChange={(e) => handleFilterChange('search', e.target.value)}
+                                placeholder="Phone/Comment"
+                            />
+                        </Grid>
+                        <Grid item xs={12} md={2}>
+                            <TextField
+                                select
+                                fullWidth
+                                label="RO"
+                                size="small"
+                                value={filters.roCode}
+                                onChange={(e) => handleFilterChange('roCode', e.target.value)}
+                            >
+                                <MenuItem value="">All</MenuItem>
+                                {filterOptions.roCodes.map((opt) => (
+                                    <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+                                ))}
+                            </TextField>
+                        </Grid>
+                        <Grid item xs={12} md={2}>
+                            <TextField
+                                select
+                                fullWidth
+                                label="Status"
+                                size="small"
+                                value={filters.status}
+                                onChange={(e) => handleFilterChange('status', e.target.value)}
+                            >
+                                <MenuItem value="">All</MenuItem>
+                                {filterOptions.statuses.map((opt) => (
+                                    <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+                                ))}
+                            </TextField>
+                        </Grid>
+                        <Grid item xs={12} md={2}>
+                            <DatePicker
+                                label="From"
+                                value={filters.startDate}
+                                onChange={(v) => handleFilterChange('startDate', v)}
+                                slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                            />
+                        </Grid>
+                        <Grid item xs={12} md={2}>
+                            <DatePicker
+                                label="To"
+                                value={filters.endDate}
+                                onChange={(v) => handleFilterChange('endDate', v)}
+                                slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                            />
+                        </Grid>
                     </Grid>
-                    <Grid item xs={6} md={2}>
-                        <TextField
-                            select
-                            fullWidth
-                            label="RO"
-                            size="small"
-                            value={filters.roCode}
-                            onChange={(e) => handleFilterChange('roCode', e.target.value)}
-                        >
-                            <MenuItem value="">All</MenuItem>
-                            {filterOptions.roCodes.map((opt) => (
-                                <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
-                            ))}
-                        </TextField>
-                    </Grid>
-                    <Grid item xs={6} md={2}>
-                        <TextField
-                            select
-                            fullWidth
-                            label="Status"
-                            size="small"
-                            value={filters.status}
-                            onChange={(e) => handleFilterChange('status', e.target.value)}
-                        >
-                            <MenuItem value="">All</MenuItem>
-                            {filterOptions.statuses.map((opt) => (
-                                <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
-                            ))}
-                        </TextField>
-                    </Grid>
-                    <Grid item xs={12} md={5}>
-                        <Box display="flex" gap={1}>
-                            <LocalizationProvider dateAdapter={AdapterDayjs}>
-                                <DatePicker
-                                    label="From"
-                                    value={filters.startDate}
-                                    onChange={(v) => handleFilterChange('startDate', v)}
-                                    slotProps={{ textField: { size: 'small', fullWidth: true } }}
-                                />
-                                <DatePicker
-                                    label="To"
-                                    value={filters.endDate}
-                                    onChange={(v) => handleFilterChange('endDate', v)}
-                                    slotProps={{ textField: { size: 'small', fullWidth: true } }}
-                                />
-                            </LocalizationProvider>
-                        </Box>
-                    </Grid>
-                </Grid>
+                </LocalizationProvider>
             </Paper>
 
             {/* Table */}
@@ -423,21 +457,22 @@ export const Reports = () => {
 
                     <Box sx={{ mt: 2, p: 2, bgcolor: '#f5f5f5', borderRadius: 1, textAlign: 'center' }}>
                         <Typography variant="h6" color="primary">
-                            {actionType === 'verify_ro' ? 'Verify Feedback (RO)' :
-                                actionType === 'verify_do' ? 'Verify & Auto-Assign (DO)' :
-                                    actionType === 'resolve' ? 'Mark as Resolved' :
-                                        actionType === 'close' ? 'Close Ticket' : ''}
+                            {actionType === 'vendor_verify' ? 'Verify Feedback (Vendor)' :
+                                actionType === 'do_assign' ? 'Assign to Field Officer (DO)' :
+                                    actionType === 'fo_action' ? 'Mark Action Taken (FO)' :
+                                        actionType === 'do_resolve' ? 'Mark as Resolved (DO)' : ''}
                         </Typography>
                         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                            {actionType === 'verify_ro' ? 'Confirm that this feedback is valid.' :
-                                actionType === 'verify_do' ? 'Validate and assign to the mapped Field Officer.' :
-                                    actionType === 'resolve' ? 'Indicate that the issue has been addressed.' :
-                                        actionType === 'close' ? 'Finalize and close this feedback loop.' : ''}
+                            {actionType === 'vendor_verify' ? 'Confirm that this feedback is valid to proceed to assignment.' :
+                                actionType === 'do_assign' ? 'Validate and auto-assign to the mapped Field Officer.' :
+                                    actionType === 'fo_action' ? 'Confirm that the necessary action has been taken.' :
+                                        actionType === 'do_resolve' ? 'Finalize and close this feedback loop.' : ''}
                         </Typography>
                     </Box>
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setActionDialogOpen(false)}>Cancel</Button>
+                    <Button onClick={handleRejectAction} color="error" variant="text">Reject</Button>
                     <Button onClick={handleConfirmAction} variant="contained" color="primary">Confirm</Button>
                 </DialogActions>
             </Dialog>
