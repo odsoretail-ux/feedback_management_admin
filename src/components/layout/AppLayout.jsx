@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
-    AppBar, Box, CssBaseline, Drawer, IconButton, List, ListItem,
+    AppBar, Box, CssBaseline, Drawer, IconButton, List, ListItem, ListItemButton,
     ListItemIcon, ListItemText, Toolbar, Typography, Menu, MenuItem,
     Avatar, Divider, Container, useMediaQuery, useTheme
 } from '@mui/material';
@@ -109,8 +109,7 @@ export const AppLayout = () => {
             <Divider />
             <List component="nav" sx={{ px: 2, py: 1.5 }}>
                 {menuItems.map((item) => (
-                    <ListItem
-                        button
+                    <ListItemButton
                         key={item.text}
                         onClick={() => {
                             navigate(item.path);
@@ -150,7 +149,7 @@ export const AppLayout = () => {
                                 fontSize: '0.9rem'
                             }}
                         />
-                    </ListItem>
+                    </ListItemButton>
                 ))}
             </List>
         </>

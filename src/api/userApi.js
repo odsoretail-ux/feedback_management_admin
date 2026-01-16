@@ -6,5 +6,6 @@ export const userApi = {
     updateUser: (id, userData) => axiosClient.put(`/users/${id}`, userData),
     deleteUser: (id) => axiosClient.delete(`/users/${id}`),
     resetPassword: (id, newPassword) => axiosClient.post(`/users/${id}/reset-password`, { newPassword }),
-    getHierarchy: () => axiosClient.get('/users/hierarchy')
+    getHierarchy: () => axiosClient.get('/users/hierarchy'),
+    uploadROList: (formData) => axiosClient.post('/users/upload_ro_list', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
 };

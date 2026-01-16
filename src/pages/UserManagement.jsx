@@ -14,7 +14,8 @@ import {
     Refresh as RefreshIcon,
     Business as BusinessIcon,
     Person as PersonIcon,
-    AccountTree as AccountTreeIcon
+    AccountTree as AccountTreeIcon,
+    CloudUpload as CloudUploadIcon
 } from '@mui/icons-material';
 import { userApi } from '../api/userApi';
 import { branchApi } from '../api/branchApi';
@@ -43,45 +44,49 @@ const HierarchyView = () => {
 
     if (loading) return <Typography>Loading hierarchy...</Typography>;
 
-    // Simple recursive render or nested list
+    // Recursive Node Component
+    const HierarchyNode = ({ node, level = 0 }) => {
+        const isSRH = node.type === 'SRH';
+        const isDRSM = node.type === 'DRSM';
+        const isDO = node.type === 'DO';
+        const isFO = node.type === 'FO' || node.type === 'FO_Placeholder';
+        const isRO = node.type === 'RO';
+        const isVendor = node.type === 'Vendor';
+
+        let icon = null;
+        if (isVendor) icon = <BusinessIcon color="secondary" fontSize="large" />;
+        else if (isSRH) icon = <PersonIcon color="primary" fontSize="medium" />;
+        else if (isDRSM) icon = <PersonIcon color="primary" fontSize="small" />;
+        else if (isDO) icon = <BusinessIcon color="action" fontSize="small" />;
+        else if (isFO) icon = <PersonIcon color="action" fontSize="small" />;
+        else if (isRO) icon = <BusinessIcon color="disabled" fontSize="small" />;
+
+        return (
+            <Box sx={{ mb: 1, ml: level * 2, borderLeft: level > 0 ? '1px dashed #ccc' : 'none', pl: level > 0 ? 2 : 0 }}>
+                <Box display="flex" alignItems="center" gap={1} mb={0.5}>
+                    {icon}
+                    <Typography variant={isVendor || isSRH ? "h6" : isDRSM || isDO ? "subtitle1" : "body2"} fontWeight={isVendor || isSRH ? "bold" : "medium"}>
+                        {node.name} <Typography component="span" variant="caption" color="text.secondary">({node.type})</Typography>
+                    </Typography>
+                </Box>
+
+                <Box>
+                    {node.children && node.children.map((child, idx) => (
+                        <HierarchyNode key={`${child.type}-${child.name}-${idx}`} node={child} level={level + 1} />
+                    ))}
+
+                    {/* Render separate message if empty ?? */}
+                </Box>
+            </Box>
+        );
+    };
+
     return (
         <Box sx={{ p: 2, bgcolor: 'background.paper', borderRadius: 1 }}>
-            <Typography variant="h6" gutterBottom>Hierarchy (DO {"->"} FO {"->"} RO)</Typography>
+            <Typography variant="h6" gutterBottom>Hierarchy (SRH {"->"} DRSM {"->"} DO {"->"} FO {"->"} RO)</Typography>
             {tree.length === 0 && <Typography>No hierarchy data found.</Typography>}
-            {tree.map(cityNode => (
-                <Box key={cityNode.name} sx={{ mb: 2, border: '1px solid #eee', borderRadius: 2, p: 2 }}>
-                    <Box display="flex" alignItems="center" gap={1} mb={1}>
-                        <BusinessIcon color="primary" />
-                        <Typography variant="subtitle1" fontWeight="bold">{cityNode.name} (DO)</Typography>
-                    </Box>
-
-                    <Box sx={{ pl: 4 }}>
-                        {cityNode.children.map(foNode => (
-                            <Box key={foNode.name} sx={{ mb: 1 }}>
-                                <Box display="flex" alignItems="center" gap={1}>
-                                    <PersonIcon color="action" fontSize="small" />
-                                    <Typography variant="body1" fontWeight="medium">{foNode.name} ({foNode.type})</Typography>
-                                </Box>
-
-                                <Box sx={{ pl: 4, mt: 0.5 }}>
-                                    {foNode.children.length === 0 ? <Typography variant="caption" color="text.secondary">No Branches</Typography> : (
-                                        <Box display="flex" gap={1} flexWrap="wrap">
-                                            {foNode.children.map(ro => (
-                                                <Chip
-                                                    key={ro.ro_code}
-                                                    label={`${ro.ro_code} - ${ro.name}`}
-                                                    size="small"
-                                                    variant="outlined"
-                                                />
-                                            ))}
-                                        </Box>
-                                    )}
-                                </Box>
-                            </Box>
-                        ))}
-                        {cityNode.children.length === 0 && <Typography variant="caption">No FOs assigned</Typography>}
-                    </Box>
-                </Box>
+            {tree.map((node, index) => (
+                <HierarchyNode key={index} node={node} />
             ))}
         </Box>
     );
@@ -89,6 +94,7 @@ const HierarchyView = () => {
 
 export const UserManagement = () => {
     const { user: currentUser } = useAuth();
+    const isSuperUser = currentUser?.role === 'superuser';
 
     // Tabs state
     const [tabValue, setTabValue] = useState(0);
@@ -128,9 +134,43 @@ export const UserManagement = () => {
     });
     const [resetPassword, setResetPassword] = useState('');
 
+    // --- Upload Dialog ---
+    const [openUploadDialog, setOpenUploadDialog] = useState(false);
+    const [uploadFile, setUploadFile] = useState(null);
+    const [uploading, setUploading] = useState(false);
+
+    const handleUploadClick = () => {
+        setUploadFile(null);
+        setOpenUploadDialog(true);
+    };
+
+    const handleFileChange = (e) => {
+        setUploadFile(e.target.files[0]);
+    };
+
+    const handleUploadSubmit = async () => {
+        if (!uploadFile) return;
+        setUploading(true);
+        const formData = new FormData();
+        formData.append('file', uploadFile);
+
+        try {
+            await userApi.uploadROList(formData);
+            setOpenUploadDialog(false);
+            // Refresh
+            fetchData();
+            alert("Upload successful! Users and mappings updated.");
+        } catch (err) {
+            setError(err.response?.data?.detail || "Upload failed");
+        } finally {
+            setUploading(false);
+        }
+    };
+
     useEffect(() => {
         fetchData();
-    }, []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tabValue]);
 
     const fetchData = async () => {
         setLoading(true);
@@ -291,11 +331,16 @@ export const UserManagement = () => {
                     {/* --- Users Tab --- */}
                     {tabValue === 0 && (
                         <Box>
-                            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-                                <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>
-                                    Add User
-                                </Button>
-                            </Box>
+                            {isSuperUser && (
+                                <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, mb: 2 }}>
+                                    <Button variant="outlined" startIcon={<CloudUploadIcon />} onClick={handleUploadClick}>
+                                        Upload RO List
+                                    </Button>
+                                    <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>
+                                        Add User
+                                    </Button>
+                                </Box>
+                            )}
                             <TableContainer component={Paper}>
                                 <Table>
                                     <TableHead>
@@ -304,7 +349,7 @@ export const UserManagement = () => {
                                             <TableCell>Role</TableCell>
                                             <TableCell>Branch</TableCell>
                                             <TableCell>City</TableCell>
-                                            <TableCell>Actions</TableCell>
+                                            {isSuperUser && <TableCell>Actions</TableCell>}
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
@@ -319,11 +364,13 @@ export const UserManagement = () => {
                                                 </TableCell>
                                                 <TableCell>{u.branchName} ({u.branchCode})</TableCell>
                                                 <TableCell>{u.city || '-'}</TableCell>
-                                                <TableCell>
-                                                    <Tooltip title="Edit"><IconButton size="small" onClick={() => handleOpenDialog(u)}><EditIcon /></IconButton></Tooltip>
-                                                    <Tooltip title="Reset Password"><IconButton size="small" onClick={() => { setSelectedUser(u); setResetPassword(''); setOpenResetDialog(true); }}><LockResetIcon /></IconButton></Tooltip>
-                                                    <Tooltip title="Delete"><IconButton size="small" color="error" disabled={u.id === currentUser.id} onClick={() => handleDeleteUser(u)}><DeleteIcon /></IconButton></Tooltip>
-                                                </TableCell>
+                                                {isSuperUser && (
+                                                    <TableCell>
+                                                        <Tooltip title="Edit"><IconButton size="small" onClick={() => handleOpenDialog(u)}><EditIcon /></IconButton></Tooltip>
+                                                        <Tooltip title="Reset Password"><IconButton size="small" onClick={() => { setSelectedUser(u); setResetPassword(''); setOpenResetDialog(true); }}><LockResetIcon /></IconButton></Tooltip>
+                                                        <Tooltip title="Delete"><IconButton size="small" color="error" disabled={u.id === currentUser.id} onClick={() => handleDeleteUser(u)}><DeleteIcon /></IconButton></Tooltip>
+                                                    </TableCell>
+                                                )}
                                             </TableRow>
                                         ))}
                                     </TableBody>
@@ -335,11 +382,13 @@ export const UserManagement = () => {
                     {/* --- Branches Tab --- */}
                     {tabValue === 1 && (
                         <Box>
-                            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-                                <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenBranchDialog}>
-                                    Add Branch
-                                </Button>
-                            </Box>
+                            {isSuperUser && (
+                                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+                                    <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenBranchDialog}>
+                                        Add Branch
+                                    </Button>
+                                </Box>
+                            )}
                             <TableContainer component={Paper}>
                                 <Table size="small">
                                     <TableHead>
@@ -348,7 +397,7 @@ export const UserManagement = () => {
                                             <TableCell>Name</TableCell>
                                             <TableCell>City</TableCell>
                                             <TableCell>Region</TableCell>
-                                            <TableCell>Actions</TableCell>
+                                            {isSuperUser && <TableCell>Actions</TableCell>}
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
@@ -358,11 +407,13 @@ export const UserManagement = () => {
                                                 <TableCell>{b.name}</TableCell>
                                                 <TableCell>{b.city}</TableCell>
                                                 <TableCell>{b.region || '-'}</TableCell>
-                                                <TableCell>
-                                                    <IconButton size="small" color="error" onClick={() => handleDeleteBranch(b.ro_code)}>
-                                                        <DeleteIcon />
-                                                    </IconButton>
-                                                </TableCell>
+                                                {isSuperUser && (
+                                                    <TableCell>
+                                                        <IconButton size="small" color="error" onClick={() => handleDeleteBranch(b.ro_code)}>
+                                                            <DeleteIcon />
+                                                        </IconButton>
+                                                    </TableCell>
+                                                )}
                                             </TableRow>
                                         ))}
                                     </TableBody>
@@ -394,39 +445,44 @@ export const UserManagement = () => {
                                 <MenuItem value="RO">RO</MenuItem>
                                 <MenuItem value="DO">DO</MenuItem>
                                 <MenuItem value="FO">FO</MenuItem>
+                                <MenuItem value="Vendor">Vendor</MenuItem>
                                 <MenuItem value="superuser">Super User</MenuItem>
                                 <MenuItem value="Vendor">Vendor</MenuItem>
                             </Select>
                         </FormControl>
 
-                        {/* Branch Selection with Autocomplete */}
-                        <Autocomplete
-                            options={branches}
-                            getOptionLabel={(option) => {
-                                if (typeof option === 'string') {
-                                    const b = branches.find(b => b.ro_code === option);
-                                    return b ? `${b.ro_code} - ${b.name}` : option;
-                                }
-                                return `${option.ro_code} - ${option.name}`;
-                            }}
-                            value={branches.find(b => b.ro_code === formData.branchCode) || null}
-                            onChange={(event, newValue) => {
-                                if (newValue) {
-                                    setFormData({
-                                        ...formData,
-                                        branchCode: newValue.ro_code,
-                                        branchName: newValue.name,
-                                        city: newValue.city
-                                    });
-                                } else {
-                                    setFormData({ ...formData, branchCode: '', branchName: '', city: '' });
-                                }
-                            }}
-                            renderInput={(params) => <TextField {...params} label="Assign Branch" helperText="Select from existing branches" />}
-                            disabled={formData.role === 'superuser'}
-                        />
+                        {/* Branch Selection with Autocomplete - Hidden for Vendor */}
+                        {formData.role !== 'Vendor' && (
+                            <Autocomplete
+                                options={branches}
+                                getOptionLabel={(option) => {
+                                    if (typeof option === 'string') {
+                                        const b = branches.find(b => b.ro_code === option);
+                                        return b ? `${b.ro_code} - ${b.name}` : option;
+                                    }
+                                    return `${option.ro_code} - ${option.name}`;
+                                }}
+                                value={branches.find(b => b.ro_code === formData.branchCode) || null}
+                                onChange={(event, newValue) => {
+                                    if (newValue) {
+                                        setFormData({
+                                            ...formData,
+                                            branchCode: newValue.ro_code,
+                                            branchName: newValue.name,
+                                            city: newValue.city
+                                        });
+                                    } else {
+                                        setFormData({ ...formData, branchCode: '', branchName: '', city: '' });
+                                    }
+                                }}
+                                renderInput={(params) => <TextField {...params} label="Assign Branch" helperText="Select from existing branches" />}
+                                disabled={formData.role === 'superuser'}
+                            />
+                        )}
 
-                        <TextField label="City" value={formData.city} onChange={e => setFormData({ ...formData, city: e.target.value })} fullWidth helperText="Auto-filled from Branch for RO/FO" />
+                        {formData.role !== 'Vendor' && (
+                            <TextField label="City" value={formData.city} onChange={e => setFormData({ ...formData, city: e.target.value })} fullWidth helperText="Auto-filled from Branch for RO/FO" />
+                        )}
                     </Box>
                 </DialogContent>
                 <DialogActions>
@@ -463,6 +519,29 @@ export const UserManagement = () => {
                 <DialogActions>
                     <Button onClick={() => setOpenResetDialog(false)}>Cancel</Button>
                     <Button onClick={handleResetPassword} variant="contained" color="warning">Reset</Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* --- Upload Dialog --- */}
+            <Dialog open={openUploadDialog} onClose={() => setOpenUploadDialog(false)}>
+                <DialogTitle>Upload RO List (Excel)</DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2" gutterBottom>
+                        Upload an Excel file with columns: RO Code, Do Name, FO Name, FO EMAIL, etc.
+                        This will update users and assignments.
+                    </Typography>
+                    <Box sx={{ mt: 2 }}>
+                        <input
+                            accept=".xlsx, .xls"
+                            type="file"
+                            onChange={handleFileChange}
+                        />
+                    </Box>
+                    {uploading && <CircularProgress sx={{ mt: 2 }} />}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setOpenUploadDialog(false)} disabled={uploading}>Cancel</Button>
+                    <Button onClick={handleUploadSubmit} variant="contained" disabled={!uploadFile || uploading}>Upload</Button>
                 </DialogActions>
             </Dialog>
         </Box>
